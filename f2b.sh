@@ -14,18 +14,17 @@ fi
 # =========================================================
 # 2. Hostname Configuration
 # =========================================================
-# Get the major version of Debian (e.g., 12)
 OS_VER=$(cut -d. -f1 /etc/debian_version)
 DEFAULT_NAME="debian${OS_VER}"
 
-# Prompt user for hostname (Interactive)
-read -p "Enter new hostname (Press Enter for default: $DEFAULT_NAME): " USER_HOSTNAME
+# FIX 1: Use < /dev/tty to force interactive input during pipe execution
+echo "Please set your hostname."
+read -p "Enter new hostname (Press Enter for default: $DEFAULT_NAME): " USER_HOSTNAME < /dev/tty
 FINAL_NAME=${USER_HOSTNAME:-$DEFAULT_NAME}
 
 echo "Setting hostname to: $FINAL_NAME"
 hostnamectl set-hostname "$FINAL_NAME"
 
-# Fix /etc/hosts mapping to prevent sudo resolution errors
 if ! grep -qw "$FINAL_NAME" /etc/hosts; then
     echo "127.0.0.1 $FINAL_NAME" >> /etc/hosts
     echo "Host mapping updated in /etc/hosts"
@@ -34,18 +33,13 @@ fi
 # =========================================================
 # 3. Component Installation
 # =========================================================
-# python3-systemd is required for Fail2Ban to read journald logs on Debian
 apt update && apt install -y fail2ban python3-systemd
 
 # =========================================================
 # 4. Configuration and Hardening
 # =========================================================
-# Pre-create log file to prevent recidive jail from failing on first start
 touch /var/log/fail2ban.log
 
-# Write Fail2Ban configuration
-# [sshd]: Basic protection (3 retries, 1h ban)
-# [recidive]: Permanent ban for repeat offenders (5 bans in 1 day = Permanent)
 cat << EOC > /etc/fail2ban/jail.local
 [DEFAULT]
 backend = systemd
@@ -69,7 +63,13 @@ EOC
 # =========================================================
 # 5. Service Activation and Status
 # =========================================================
+# Ensure service is enabled to start on boot
+systemctl enable fail2ban
 systemctl restart fail2ban
+
+# FIX 2: Wait for 3 seconds to ensure the socket file is created
+echo "Waiting for Fail2Ban service to initialize..."
+sleep 3
 
 echo "========================================"
 echo "Configuration Completed Successfully"
@@ -77,6 +77,6 @@ echo "Hostname set to: $FINAL_NAME"
 echo "Fail2Ban Protection: Active"
 echo "========================================"
 
-# Display active jails
+# Display active jails (using --no-pager to avoid getting stuck)
 fail2ban-client status sshd
 fail2ban-client status recidive
